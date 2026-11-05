@@ -1,0 +1,281 @@
+-- Services.
+local playersService = game:GetService("Players")
+local runService = game:GetService("RunService")
+local userInputService = game:GetService("UserInputService")
+local lightingService = game:GetService("Lighting")
+local teleportService = game:GetService("TeleportService")
+
+-- Constants.
+local MENU_NAME = "OdcleakMenu"
+local TOGGLE_KEY = Enum.KeyCode.F2
+local WALK_SPEED = 50
+local COLOR_BG = Color3.fromRGB(10, 12, 20)
+local COLOR_ROW = Color3.fromRGB(16, 18, 28)
+local COLOR_ACCENT = Color3.fromRGB(20, 80, 220)
+local COLOR_TEXT = Color3.fromRGB(235, 235, 245)
+
+-- State.
+local localPlayer = playersService.LocalPlayer
+local flags = {}
+local connections = {}
+local highlights = {}
+
+local function getHumanoid()
+	local character = localPlayer.Character
+	return character and character:FindFirstChildOfClass("Humanoid")
+end
+
+-- Features.
+local function setEsp(state)
+	flags.esp = state
+	if state then
+		task.spawn(function()
+			while flags.esp do
+				for _, player in ipairs(playersService:GetPlayers()) do
+					if player ~= localPlayer and player.Character and not highlights[player] then
+						local highlight = Instance.new("Highlight")
+						highlight.FillColor = COLOR_ACCENT
+						highlight.Parent = player.Character
+						highlights[player] = highlight
+					end
+					if highlights[player] and not highlights[player].Parent then
+						highlights[player] = nil
+					end
+				end
+				task.wait(1)
+			end
+		end)
+		return
+	end
+	for player, highlight in pairs(highlights) do
+		highlight:Destroy()
+		highlights[player] = nil
+	end
+end
+
+local function setFullbright(state)
+	flags.fullbright = state
+	lightingService.Brightness = state and 3 or 1
+	lightingService.GlobalShadows = not state
+	lightingService.FogEnd = state and 1e6 or 1000
+end
+
+local categories = {
+	{ name = "Self Options", entries = {
+		{ text = "Speed", toggle = function(state) flags.speed = state end },
+		{ text = "Infinite Jump", toggle = function(state) flags.infJump = state end },
+		{ text = "Noclip", toggle = function(state) flags.noclip = state end },
+	} },
+	{ name = "World Options", entries = {
+		{ text = "Fullbright", toggle = setFullbright },
+		{ text = "Low Gravity", toggle = function(state) workspace.Gravity = state and 60 or 196.2 end },
+	} },
+	{ name = "Weapons Options", entries = {} },
+	{ name = "Combat Options", entries = {
+		{ text = "Player ESP", toggle = setEsp },
+	} },
+	{ name = "Vehicle Options", entries = {} },
+	{ name = "Miscellaneous", entries = {
+		{ text = "Unlock FPS", action = function() if setfpscap then setfpscap(240) end end },
+	} },
+	{ name = "Server Options", entries = {
+		{ text = "Rejoin", action = function() teleportService:Teleport(game.PlaceId, localPlayer) end },
+	} },
+}
+
+-- UI.
+local function create(class, props, parent)
+	local object = Instance.new(class)
+	for key, value in pairs(props) do
+		object[key] = value
+	end
+	object.Parent = parent
+	return object
+end
+
+local screenGui = create("ScreenGui", { Name = MENU_NAME, ResetOnSpawn = false }, gethui and gethui() or game:GetService("CoreGui"))
+
+local mainFrame = create("Frame", {
+	Size = UDim2.fromOffset(300, 400),
+	Position = UDim2.new(0, 40, 0.5, -200),
+	BackgroundColor3 = COLOR_BG,
+	BorderSizePixel = 0,
+	Active = true,
+	Draggable = true,
+}, screenGui)
+
+create("TextLabel", {
+	Size = UDim2.new(1, 0, 0, 70),
+	BackgroundColor3 = Color3.fromRGB(5, 15, 50),
+	BorderSizePixel = 0,
+	Text = "ØDCLEAK\nMENU",
+	Font = Enum.Font.GothamBlack,
+	TextSize = 22,
+	TextColor3 = Color3.fromRGB(60, 140, 255),
+}, mainFrame)
+
+local mainTab = create("TextButton", {
+	Size = UDim2.new(0.5, 0, 0, 28),
+	Position = UDim2.fromOffset(0, 70),
+	BackgroundColor3 = COLOR_ACCENT,
+	BorderSizePixel = 0,
+	Text = "MAIN",
+	Font = Enum.Font.GothamBold,
+	TextSize = 12,
+	TextColor3 = COLOR_TEXT,
+}, mainFrame)
+
+local configTab = create("TextButton", {
+	Size = UDim2.new(0.5, 0, 0, 28),
+	Position = UDim2.new(0.5, 0, 0, 70),
+	BackgroundColor3 = COLOR_ROW,
+	BorderSizePixel = 0,
+	Text = "CONFIG",
+	Font = Enum.Font.GothamBold,
+	TextSize = 12,
+	TextColor3 = Color3.fromRGB(130, 130, 150),
+}, mainFrame)
+
+local content = create("ScrollingFrame", {
+	Size = UDim2.new(1, 0, 1, -128),
+	Position = UDim2.fromOffset(0, 98),
+	BackgroundTransparency = 1,
+	BorderSizePixel = 0,
+	ScrollBarThickness = 3,
+	AutomaticCanvasSize = Enum.AutomaticSize.Y,
+	CanvasSize = UDim2.new(),
+}, mainFrame)
+create("UIListLayout", { Padding = UDim.new(0, 2) }, content)
+
+local footer = create("TextLabel", {
+	Size = UDim2.new(1, -16, 0, 30),
+	Position = UDim2.new(0, 8, 1, -30),
+	BackgroundTransparency = 1,
+	Text = "",
+	Font = Enum.Font.GothamBold,
+	TextSize = 12,
+	TextColor3 = COLOR_TEXT,
+	TextXAlignment = Enum.TextXAlignment.Right,
+}, mainFrame)
+
+local function clearContent()
+	for _, child in ipairs(content:GetChildren()) do
+		if child:IsA("GuiButton") then
+			child:Destroy()
+		end
+	end
+end
+
+local function addRow(text, suffix, callback)
+	local row = create("TextButton", {
+		Size = UDim2.new(1, 0, 0, 32),
+		BackgroundColor3 = COLOR_ROW,
+		BorderSizePixel = 0,
+		Text = "   " .. text,
+		Font = Enum.Font.GothamBold,
+		TextSize = 13,
+		TextColor3 = COLOR_TEXT,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		AutoButtonColor = true,
+	}, content)
+	local tag = create("TextLabel", {
+		Size = UDim2.new(0, 50, 1, 0),
+		Position = UDim2.new(1, -56, 0, 0),
+		BackgroundTransparency = 1,
+		Text = suffix,
+		Font = Enum.Font.GothamBold,
+		TextSize = 12,
+		TextColor3 = COLOR_TEXT,
+	}, row)
+	row.MouseButton1Click:Connect(function()
+		callback(row, tag)
+	end)
+	return row, tag
+end
+
+local showMain, showCategory
+
+showCategory = function(category, index)
+	clearContent()
+	footer.Text = category.name .. "   " .. index .. "/" .. #categories
+	addRow("< Retour", "", function() showMain() end)
+	if #category.entries == 0 then
+		addRow("Aucune option", "", function() end)
+	end
+	for _, entry in ipairs(category.entries) do
+		if entry.toggle then
+			local state = false
+			addRow(entry.text, "OFF", function(row, tag)
+				state = not state
+				tag.Text = state and "ON" or "OFF"
+				tag.TextColor3 = state and Color3.fromRGB(60, 220, 120) or COLOR_TEXT
+				entry.toggle(state)
+			end)
+		else
+			addRow(entry.text, "RUN", function() entry.action() end)
+		end
+	end
+end
+
+showMain = function()
+	clearContent()
+	footer.Text = "Ødcleak   1/" .. #categories
+	for index, category in ipairs(categories) do
+		addRow(category.name, "[>]", function() showCategory(category, index) end)
+	end
+end
+
+local function showConfig()
+	clearContent()
+	footer.Text = "Config"
+	addRow("Touche: F2", "", function() end)
+	addRow("Détruire le menu", "X", function()
+		for _, connection in ipairs(connections) do
+			connection:Disconnect()
+		end
+		setEsp(false)
+		setFullbright(false)
+		table.clear(flags)
+		screenGui:Destroy()
+	end)
+end
+
+mainTab.MouseButton1Click:Connect(function()
+	mainTab.BackgroundColor3, configTab.BackgroundColor3 = COLOR_ACCENT, COLOR_ROW
+	showMain()
+end)
+
+configTab.MouseButton1Click:Connect(function()
+	configTab.BackgroundColor3, mainTab.BackgroundColor3 = COLOR_ACCENT, COLOR_ROW
+	showConfig()
+end)
+
+-- Loops and input.
+table.insert(connections, runService.Stepped:Connect(function()
+	local humanoid = getHumanoid()
+	if flags.speed and humanoid then
+		humanoid.WalkSpeed = WALK_SPEED
+	end
+	if flags.noclip and localPlayer.Character then
+		for _, part in ipairs(localPlayer.Character:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.CanCollide = false
+			end
+		end
+	end
+end))
+
+table.insert(connections, userInputService.JumpRequest:Connect(function()
+	local humanoid = getHumanoid()
+	if flags.infJump and humanoid then
+		humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+	end
+end))
+
+table.insert(connections, userInputService.InputBegan:Connect(function(input, processed)
+	if not processed and input.KeyCode == TOGGLE_KEY then
+		mainFrame.Visible = not mainFrame.Visible
+	end
+end))
+
+showMain()
