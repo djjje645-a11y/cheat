@@ -4,9 +4,11 @@ local runService = game:GetService("RunService")
 local userInputService = game:GetService("UserInputService")
 local lightingService = game:GetService("Lighting")
 local teleportService = game:GetService("TeleportService")
+local contextActionService = game:GetService("ContextActionService")
 
 -- Constants.
 local MENU_NAME = "OdcleakMenu"
+local CONTEXT_ACTION = "OdcleakMenuNav"
 local TOGGLE_KEY = Enum.KeyCode.F2
 local WALK_SPEED = 50
 local ROW_HEIGHT = 32
@@ -15,6 +17,10 @@ local COLOR_BG = Color3.fromRGB(10, 12, 20)
 local COLOR_ROW = Color3.fromRGB(16, 18, 28)
 local COLOR_ACCENT = Color3.fromRGB(20, 80, 220)
 local COLOR_TEXT = Color3.fromRGB(235, 235, 245)
+local NAV_KEYS = {
+	Enum.KeyCode.Up, Enum.KeyCode.Down, Enum.KeyCode.Left, Enum.KeyCode.Right,
+	Enum.KeyCode.Return, Enum.KeyCode.Backspace, Enum.KeyCode.Tab,
+}
 
 -- State.
 local localPlayer = playersService.LocalPlayer
@@ -100,13 +106,14 @@ end
 
 local screenGui = create("ScreenGui", { Name = MENU_NAME, ResetOnSpawn = false }, gethui and gethui() or game:GetService("CoreGui"))
 
+-- Fixed position, not draggable.
 local mainFrame = create("Frame", {
 	Size = UDim2.fromOffset(300, 400),
 	Position = UDim2.new(0, 40, 0.5, -200),
 	BackgroundColor3 = COLOR_BG,
 	BorderSizePixel = 0,
-	Active = true,
-	Draggable = true,
+	Active = false,
+	Draggable = false,
 }, screenGui)
 
 create("TextLabel", {
@@ -258,7 +265,98 @@ showMain = function()
 	selectRow(1)
 end
 
+-- Keyboard navigation.
+local function setNavigation(enabled)
+	if enabled then
+		contextActionService:BindActionAtPriority(CONTEXT_ACTION, function(_, state, input)
+			if state == Enum.UserInputState.Begin then
+				onKeyboard(input.KeyCode)
+			end
+			return Enum.ContextActionResult.Sink
+		end, false, 3000, unpack(NAV_KEYS))
+	else
+		contextActionService:UnbindAction(CONTEXT_ACTION)
+	end
+end
+
 local function showConfig()
 	clearContent()
 	goBack = showMain
-	footer.Text =
+	footer.Text = "Config"
+	addRow("Touche: F2", "", function() end)
+	addRow("Détruire le menu", "X", function()
+		for _, connection in ipairs(connections) do
+			connection:Disconnect()
+		end
+		setNavigation(false)
+		setEsp(false)
+		setFullbright(false)
+		table.clear(flags)
+		screenGui:Destroy()
+	end)
+	selectRow(1)
+end
+
+local function setTab(isMain)
+	mainTab.BackgroundColor3 = isMain and COLOR_ACCENT or COLOR_ROW
+	configTab.BackgroundColor3 = isMain and COLOR_ROW or COLOR_ACCENT
+	if isMain then
+		showMain()
+	else
+		showConfig()
+	end
+end
+
+mainTab.MouseButton1Click:Connect(function() setTab(true) end)
+configTab.MouseButton1Click:Connect(function() setTab(false) end)
+
+function onKeyboard(keyCode)
+	if keyCode == Enum.KeyCode.Up then
+		selectRow(selectedIndex - 1)
+	elseif keyCode == Enum.KeyCode.Down then
+		selectRow(selectedIndex + 1)
+	elseif keyCode == Enum.KeyCode.Right or keyCode == Enum.KeyCode.Return then
+		local entry = rows[selectedIndex]
+		if entry then
+			entry.callback(entry.row, entry.tag)
+		end
+	elseif keyCode == Enum.KeyCode.Left or keyCode == Enum.KeyCode.Backspace then
+		if goBack then
+			goBack()
+		end
+	elseif keyCode == Enum.KeyCode.Tab then
+		setTab(mainTab.BackgroundColor3 ~= COLOR_ACCENT)
+	end
+end
+
+-- Loops and input.
+table.insert(connections, runService.Stepped:Connect(function()
+	local humanoid = getHumanoid()
+	if flags.speed and humanoid then
+		humanoid.WalkSpeed = WALK_SPEED
+	end
+	if flags.noclip and localPlayer.Character then
+		for _, part in ipairs(localPlayer.Character:GetDescendants()) do
+			if part:IsA("BasePart") then
+				part.CanCollide = false
+			end
+		end
+	end
+end))
+
+table.insert(connections, userInputService.JumpRequest:Connect(function()
+	local humanoid = getHumanoid()
+	if flags.infJump and humanoid then
+		humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+	end
+end))
+
+table.insert(connections, userInputService.InputBegan:Connect(function(input)
+	if input.KeyCode == TOGGLE_KEY and not userInputService:GetFocusedTextBox() then
+		mainFrame.Visible = not mainFrame.Visible
+		setNavigation(mainFrame.Visible)
+	end
+end))
+
+setNavigation(true)
+setTab(true)
