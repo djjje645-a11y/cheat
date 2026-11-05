@@ -9,6 +9,8 @@ local teleportService = game:GetService("TeleportService")
 local MENU_NAME = "OdcleakMenu"
 local TOGGLE_KEY = Enum.KeyCode.F2
 local WALK_SPEED = 50
+local ROW_HEIGHT = 32
+local ROW_PADDING = 2
 local COLOR_BG = Color3.fromRGB(10, 12, 20)
 local COLOR_ROW = Color3.fromRGB(16, 18, 28)
 local COLOR_ACCENT = Color3.fromRGB(20, 80, 220)
@@ -19,6 +21,9 @@ local localPlayer = playersService.LocalPlayer
 local flags = {}
 local connections = {}
 local highlights = {}
+local rows = {}
+local selectedIndex = 1
+local goBack = nil
 
 local function getHumanoid()
 	local character = localPlayer.Character
@@ -145,7 +150,7 @@ local content = create("ScrollingFrame", {
 	AutomaticCanvasSize = Enum.AutomaticSize.Y,
 	CanvasSize = UDim2.new(),
 }, mainFrame)
-create("UIListLayout", { Padding = UDim.new(0, 2) }, content)
+create("UIListLayout", { Padding = UDim.new(0, ROW_PADDING) }, content)
 
 local footer = create("TextLabel", {
 	Size = UDim2.new(1, -16, 0, 30),
@@ -158,17 +163,38 @@ local footer = create("TextLabel", {
 	TextXAlignment = Enum.TextXAlignment.Right,
 }, mainFrame)
 
+-- Highlight the selected row and keep it visible in the scroll frame.
+local function selectRow(index)
+	if #rows == 0 then
+		return
+	end
+	selectedIndex = math.clamp(index, 1, #rows)
+	for i, entry in ipairs(rows) do
+		entry.row.BackgroundColor3 = i == selectedIndex and COLOR_ACCENT or COLOR_ROW
+	end
+	local top = (selectedIndex - 1) * (ROW_HEIGHT + ROW_PADDING)
+	local bottom = top + ROW_HEIGHT
+	local viewHeight = content.AbsoluteWindowSize.Y
+	if top < content.CanvasPosition.Y then
+		content.CanvasPosition = Vector2.new(0, top)
+	elseif bottom > content.CanvasPosition.Y + viewHeight then
+		content.CanvasPosition = Vector2.new(0, bottom - viewHeight)
+	end
+end
+
 local function clearContent()
 	for _, child in ipairs(content:GetChildren()) do
 		if child:IsA("GuiButton") then
 			child:Destroy()
 		end
 	end
+	table.clear(rows)
+	content.CanvasPosition = Vector2.zero
 end
 
 local function addRow(text, suffix, callback)
 	local row = create("TextButton", {
-		Size = UDim2.new(1, 0, 0, 32),
+		Size = UDim2.new(1, 0, 0, ROW_HEIGHT),
 		BackgroundColor3 = COLOR_ROW,
 		BorderSizePixel = 0,
 		Text = "   " .. text,
@@ -176,7 +202,7 @@ local function addRow(text, suffix, callback)
 		TextSize = 13,
 		TextColor3 = COLOR_TEXT,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		AutoButtonColor = true,
+		AutoButtonColor = false,
 	}, content)
 	local tag = create("TextLabel", {
 		Size = UDim2.new(0, 50, 1, 0),
@@ -187,7 +213,10 @@ local function addRow(text, suffix, callback)
 		TextSize = 12,
 		TextColor3 = COLOR_TEXT,
 	}, row)
+	local entry = { row = row, tag = tag, callback = callback }
+	table.insert(rows, entry)
 	row.MouseButton1Click:Connect(function()
+		selectRow(table.find(rows, entry) or 1)
 		callback(row, tag)
 	end)
 	return row, tag
@@ -197,6 +226,7 @@ local showMain, showCategory
 
 showCategory = function(category, index)
 	clearContent()
+	goBack = showMain
 	footer.Text = category.name .. "   " .. index .. "/" .. #categories
 	addRow("< Retour", "", function() showMain() end)
 	if #category.entries == 0 then
@@ -215,67 +245,20 @@ showCategory = function(category, index)
 			addRow(entry.text, "RUN", function() entry.action() end)
 		end
 	end
+	selectRow(1)
 end
 
 showMain = function()
 	clearContent()
+	goBack = nil
 	footer.Text = "Ødcleak   1/" .. #categories
 	for index, category in ipairs(categories) do
 		addRow(category.name, "[>]", function() showCategory(category, index) end)
 	end
+	selectRow(1)
 end
 
 local function showConfig()
 	clearContent()
-	footer.Text = "Config"
-	addRow("Touche: F2", "", function() end)
-	addRow("Détruire le menu", "X", function()
-		for _, connection in ipairs(connections) do
-			connection:Disconnect()
-		end
-		setEsp(false)
-		setFullbright(false)
-		table.clear(flags)
-		screenGui:Destroy()
-	end)
-end
-
-mainTab.MouseButton1Click:Connect(function()
-	mainTab.BackgroundColor3, configTab.BackgroundColor3 = COLOR_ACCENT, COLOR_ROW
-	showMain()
-end)
-
-configTab.MouseButton1Click:Connect(function()
-	configTab.BackgroundColor3, mainTab.BackgroundColor3 = COLOR_ACCENT, COLOR_ROW
-	showConfig()
-end)
-
--- Loops and input.
-table.insert(connections, runService.Stepped:Connect(function()
-	local humanoid = getHumanoid()
-	if flags.speed and humanoid then
-		humanoid.WalkSpeed = WALK_SPEED
-	end
-	if flags.noclip and localPlayer.Character then
-		for _, part in ipairs(localPlayer.Character:GetDescendants()) do
-			if part:IsA("BasePart") then
-				part.CanCollide = false
-			end
-		end
-	end
-end))
-
-table.insert(connections, userInputService.JumpRequest:Connect(function()
-	local humanoid = getHumanoid()
-	if flags.infJump and humanoid then
-		humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-	end
-end))
-
-table.insert(connections, userInputService.InputBegan:Connect(function(input, processed)
-	if not processed and input.KeyCode == TOGGLE_KEY then
-		mainFrame.Visible = not mainFrame.Visible
-	end
-end))
-
-showMain()
+	goBack = showMain
+	footer.Text =
